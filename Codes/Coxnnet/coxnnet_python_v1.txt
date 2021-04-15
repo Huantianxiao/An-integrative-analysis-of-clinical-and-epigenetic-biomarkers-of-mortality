@@ -1,0 +1,210 @@
+## Before you run python script, the inverse-transformation of DNAm data should be done in R and saved,
+## Below, #lines are sample R scripts
+
+############# inverse-transform of DNAm data should be done in R ######################################
+#load("your_dna_methy_data.Rdata")
+#ls()
+#dim(DNAm_Data) ##sample_ID,CpG_number
+#DNAm_Data[1:3,1:3]
+
+#### We only need a subset of CpGs
+#CpGs_p05=read.csv("CpGs_EWAS.csv")
+#DNAm_Data_sub=DNAm_Data[,c("sample_ID",paste(CpGs_p05$CpG))]
+#dim(DNAm_Data_sub)
+
+#### Inverly-transformed the DNAm Beta values
+#DNAm_Data_s_inv=DNAm_Data_sub
+#row.names(DNAm_Data_s_inv)=DNAm_Data_sub[,1]
+#DNAm_Data_s_inv=DNAm_Data_s_inv[,-1]
+
+#for(i in 1:dim(DNAm_Data_s_inv)[2]) {
+#DNAm_Data_s_inv[,i]=qnorm(rank(DNAm_Data_s_inv[,i])/(length(DNAm_Data_s_inv[,i])+1),mean=0,sd=1)
+#}
+
+#### merge your phenotype files with DNAm-inverse-transformed data
+
+#### "Phenotype_file.csv" each row is a sampleID, each column is a phenotype
+#Pheno=read.csv("Phenotype_file.csv") ## Pheno=read.table("",sep="\t",header=T)
+
+#dim(Pheno)##sample_ID, phenotypes
+#### please include the following columns in "Phenotype_file.csv":
+#### "days_to_event_num" -- Days_to_exam_death; "death" -- All_cause_mortality; "CVDDEATH_r" -- CVD_death; "Cancer_death";
+#### "age"; "sex"; "bmi"; "smoke"; "gramsperday" -- Alcohol Drinking; "EduYears"; "g2ex8phy" -- hysical Activity;
+#### "diabetes"-- prevalent diabetes; "prevCHD"-- prevalent CHD; "prevCHF" -- prevalent heart failure; "prevABI" -- prevalent stroke;
+#### "hrtnow" -- prevalent hypertension; "cancer" -- "prevalent cancer"
+
+#### Do not have NA in your data!
+#Pheno=Pheno[,c("sample_ID", "days_to_event_num","death", "CVDDEATH_r", "Cancer_death",
+#               "age", "sex", "gramsperday","smoke","bmi","diabetes",
+#               "prevCHD","hrtnow","cancer","g2ex8phy", "EduYears","prevCHF","prevABI")]
+		 
+#Pheno_DNAm=merge(Pheno,DNAm_Data_s_inv, by.x="sample_ID", by.y="row.names")
+
+
+#### save your DNAm data
+#write.table(DNAm_Data_s_inv,"DNAm_subset_ARIC_EA_invesre.csv", row.names=F,quote=F,sep=",")
+
+###########################################################################################################
+
+
+### install python package coxnnet
+## those packages require python2, if you have python 3 some grammer checking should be made in the scripts of coxnnet
+## module load python2
+
+## install coxnnet
+## http://traversc.github.io/cox-nnet/docs/
+cd /your_folder_install_coxnnet/
+cd /restricted/projectnb/fhs-methylation/Projects_H/DNAm_Mortality/cox-nnet/
+
+git clone https://github.com/traversc/cox-nnet.git
+cd cox-nnet
+
+pip install . --user
+
+## update theano
+pip install --upgrade theano --user
+
+## PLEASE, make some changes in the ./cox-nnet/cox_nnet/cox_nnet.py files
+## change the line 24 'from sklearn import cross_validate' as below, and save cox_nnet.py
+## from sklearn.model_selection import cross_validate
+
+
+
+## cd /your_test_folder
+
+## open python
+python
+
+### python scripts as below for running
+
+import os
+cwd = os.getcwd()
+
+import sys
+## copy the files cox-nnet/cox_nnet to sys path
+sys.path.append('/XXXXX/cox-nnet/cox_nnet')
+import cox_nnet
+
+from cox_nnet import *
+
+import sklearn
+import numpy as np
+import pandas as pd
+
+import lasagne
+import matplotlib
+import matplotlib.pyplot as plt
+
+import theano
+theano.__version__
+
+
+## read your DNAm_pheno data
+ARIC_data_name="/XXXX/inv_DNAm_merge_phenotype_ARIC_EA.csv"
+ARIC_df= pd.read_csv(ARIC_data_name)
+##list(ARIC_df.columns)[1:20]
+
+col_sel=["sample_ID","days_to_event_num","death", "CVDDEATH_r", "Cancer_death","age","sex","gramsperday","smoke","bmi","diabetes", "prevCHD","hrtnow","cancer","g2ex8phy", "EduYears","prevCHF","prevABI",]
+ARIC_pheno=ARIC_df[col_sel]
+
+
+## load FHS mods one by one
+
+# 1: FHS_coxnnet_ageSex.mod
+pwd_out='/XXXX/FHS_mod_coxnnet/'
+mod1='FHS_coxnnet_ageSex.mod'
+out_name=pwd_out + mod1	
+model=loadModel(out_name)
+
+## please make sure the columns of phenotypes using the EXACT same orders as below
+col_pheno=["age","sex"]
+
+ARIC_test = ARIC_df[col_pheno].values.astype(np.float32)
+theta = model.predictNewData(ARIC_test)
+
+## add the theta in the pheno
+c_col=mod1
+sLength = len(ARIC_pheno['age'])
+ARIC_pheno[c_col]=theta	
+list(ARIC_pheno.columns)
+
+# 2: FHS_coxnnet_ageSexClini.mod
+mod1='FHS_coxnnet_ageSexClini.mod'
+out_name=pwd_out + mod1	
+model=loadModel(out_name)
+
+## please make sure the columns of phenotypes using the EXACT same orders as below
+col_pheno=["age","sex","gramsperday","smoke","bmi","diabetes", "prevCHD","hrtnow","cancer","g2ex8phy", "EduYears","prevCHF","prevABI"]
+ARIC_test = ARIC_df[col_pheno].values.astype(np.float32)
+theta = model.predictNewData(ARIC_test)
+
+## add the theta in the pheno
+c_col=mod1
+sLength = len(ARIC_pheno['age'])
+ARIC_pheno[c_col]=theta	
+list(ARIC_pheno.columns)
+
+## mods
+mod_cpgs=['FHS_coxnnet_CpGs_P1e-07.mod','FHS_coxnnet_CpGs_P1e-06.mod','FHS_coxnnet_CpGs_P1e-05.mod', 'FHS_coxnnet_CpGs_P0.0001.mod', 'FHS_coxnnet_CpGs_P0.001.mod', 'FHS_coxnnet_CpGs_P0.05.mod']
+mod_cpgs_ageSex=['FHS_coxnnet_AgeSex_CpGs_P1e-07.mod','FHS_coxnnet_AgeSex_CpGs_P1e-06.mod','FHS_coxnnet_AgeSex_CpGs_P1e-05.mod', 'FHS_coxnnet_AgeSex_CpGs_P0.0001.mod', 'FHS_coxnnet_AgeSex_CpGs_P0.001.mod', 'FHS_coxnnet_AgeSex_CpGs_P0.05.mod']
+mod_cpgs_ageSexClin=['FHS_coxnnet_AgeSexClini_CpGs_P1e-07.mod','FHS_coxnnet_AgeSexClini_CpGs_P1e-06.mod','FHS_coxnnet_AgeSexClini_CpGs_P1e-05.mod', 'FHS_coxnnet_AgeSexClini_CpGs_P0.0001.mod', 'FHS_coxnnet_AgeSexClini_CpGs_P0.001.mod', 'FHS_coxnnet_AgeSexClini_CpGs_P0.05.mod']
+
+meta_file="/restricted/projectnb/fhs-methylation/Projects_H/copy_fhsge/methy_huan/Mortality/meta/meta_mortality_EA_results_repARIC_NAS_fhsv2_excRS_disP05.csv"
+meta= pd.read_csv(meta_file)
+Pvals=[1e-7,1e-6,1e-5,1e-4,1e-3,0.05]
+
+
+for j in range(5):
+    p=Pvals[j]
+    meta1=meta.loc[meta['dis.pval.random'] < p]
+    CpGs=meta1["CpG"].values.astype('string')
+    mod1=mod_cpgs[j]	
+    out_name=pwd_out + mod1	
+    model=loadModel(out_name)
+    ARIC_test = ARIC_df[CpGs].values.astype(np.float32)
+    theta = model.predictNewData(ARIC_test)
+    c_col=mod1
+    sLength = len(ARIC_pheno['age'])
+    ARIC_pheno[c_col]=theta
+
+col_pheno=["age","sex"]
+
+for j in range(5):
+    p=Pvals[j]
+    meta1=meta.loc[meta['dis.pval.random'] < p]
+    CpGs=meta1["CpG"].values.astype('string')
+    CpGs =np.append(CpGs,col_pheno,axis=0)
+    mod1=mod_cpgs_ageSex[j]
+    out_name=pwd_out + mod1	
+    model=loadModel(out_name)
+    ARIC_test = ARIC_df[CpGs].values.astype(np.float32)
+    theta = model.predictNewData(ARIC_test)
+    c_col=mod1
+    sLength = len(ARIC_pheno['age'])
+    ARIC_pheno[c_col]=theta    
+
+
+## please make sure the columns of phenotypes using the EXACT same orders as below
+col_pheno=["age","sex","gramsperday","smoke","bmi","diabetes", "prevCHD","hrtnow","cancer","g2ex8phy", "EduYears","prevCHF","prevABI"]
+
+for j in range(5):
+    p=Pvals[j]
+    meta1=meta.loc[meta['dis.pval.random'] < p]
+    CpGs=meta1["CpG"].values.astype('string')
+    CpGs =np.append(CpGs,col_pheno,axis=0)
+    mod1=mod_cpgs_ageSexClin[j]
+    out_name=pwd_out + mod1	
+    model=loadModel(out_name)
+    ARIC_test = ARIC_df[CpGs].values.astype(np.float32)
+    theta = model.predictNewData(ARIC_test)
+    c_col=mod1
+    sLength = len(ARIC_pheno['age'])
+    ARIC_pheno[c_col]=theta
+    
+## write the ARIC_pheno into a csv file
+pwd_out='/XXX/path_save_yourResults/'	
+out_name=pwd_out + 'ARIC_EA_test.csv'
+ARIC_pheno.to_csv(out_name,index=False)
+
+###### Please switch to R for the riskScore test in each model
+###### do similar thing as RandomForest_rep_sampleCode_v1.r lines 85-185
